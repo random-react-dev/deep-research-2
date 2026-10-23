@@ -1,3 +1,5 @@
+> Historical implementation notes. See [thin-client.md](thin-client.md) for deep-research-2.
+
 # Research-first implementation plan
 
 ## Outcome

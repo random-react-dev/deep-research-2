@@ -62,3 +62,11 @@ Final research-first regression run: **235 tests passed**, eight subtests passed
 The client no longer searches other installation directories for credentials. Tests verify fresh registration even when the old reuse flag is supplied, reuse of its own registration, rejection of foreign credential references before reads, rejection of symlinked credentials and mismatched state roots, and blocking of old research receipts that reference another installation. Returned reports include untrusted-data metadata separate from report text; an adversarial report cannot replace that metadata in the JSON output. Stored report bytes and checksums are unchanged.
 
 Regression result: **241 tests passed**, eight subtests passed. Existing local HTTP research/recovery and signed setup fixtures passed. This change does not add approval prompts or remove the existing shell/background-service capabilities; no new external-model run or audit-rating improvement is claimed.
+
+## deep-research-2 main-agent setup acceptance
+
+The live client returned setup_required without creating a helper executable, LaunchAgent or setup-agent process. The main agent read the returned signature-verified instructions, confirmed they matched the reviewed server template, and executed those steps through normal tools. The server confirmed two authenticated heartbeats with setup attempt count zero; no setup-model credential was used.
+
+A Codex research request and a Claude request then ran sequentially through the same installed service. Codex completed 6 successful Research Gateway searches and 12 fetches; Claude completed 3 searches and 7 fetches. Both report.md files were returned with untrusted-content labels and verified SHA-256 hashes. The second task's worker-start event followed the first task's completion. The test-owned service, state and server record were removed afterward; private evidence remains outside this repository.
+
+Final suite: **218 tests passed**, eight subtests passed, two expected/dependency warnings. Skill validation passed. Obsolete tests for the removed setup-agent/coordinator architecture were replaced with thin-client and direct-session coverage. No full Mac reboot or lower audit rating is claimed.

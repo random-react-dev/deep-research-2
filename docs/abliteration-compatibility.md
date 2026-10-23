@@ -1,3 +1,5 @@
+> Historical implementation notes. See [thin-client.md](thin-client.md) for deep-research-2.
+
 # Abliteration integration findings
 
 Reviewed 2026-10-23. Model: `abliterated-model-large-flash`. Keep documentation claims separate from observed tests.

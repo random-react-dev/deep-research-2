@@ -52,6 +52,17 @@ class Create(Body):
         if any(ord(char)<32 or ord(char)==127 for char in value):
             raise ValueError('Control characters are not allowed')
         return value
+class DirectCreate(Body):
+    provider: Literal['codex','claude']
+    idempotency_key: str = Field(min_length=8,max_length=128)
+
+    @field_validator('idempotency_key')
+    @classmethod
+    def plain_key(cls,value):
+        if any(ord(char)<32 or ord(char)==127 for char in value):
+            raise ValueError('Control characters are not allowed')
+        return value
+
 class Attempt(Body):
     previous_runner_stopped: bool
 class Event(Body):
@@ -172,11 +183,41 @@ CREATE TABLE IF NOT EXISTS helper_bootstrap_events(seq INTEGER PRIMARY KEY AUTOI
             db.execute('INSERT OR IGNORE INTO helper_bootstrap_devices(device_id,gate) VALUES (?,?)',(device,int(not existing)))
             db.execute('INSERT INTO helper_bootstrap_sessions(id,device_id,idempotency_key,provider,status,created,updated,document,instructions) VALUES (?,?,?,?,?,?,?,?,?)',(sid,device,data['idempotency_key'],data['provider'],'pending',now,now,json.dumps(doc),instructions))
             return self.view(self.row(db,device,sid))
+    def create_direct(self,device,data,origin):
+        """Main-agent setup pins signed instructions without collecting local execution paths."""
+        def compatible(row):
+            document=json.loads(row['document'])
+            if document.get('executor')!='main-agent' or row['provider']!=data['provider']:
+                raise HTTPException(409,'Existing setup belongs to a different execution mode or provider')
+            return self.view(row)
+        with self.store.db() as db:
+            previous=db.execute('SELECT * FROM helper_bootstrap_sessions WHERE device_id=? AND idempotency_key=?',(device,data['idempotency_key'])).fetchone()
+            if previous:return compatible(previous)
+        release=self.release()
+        model=os.environ.get('HELPER_BOOTSTRAP_MODEL','abliterated-model-large-flash')
+        envelope=self.signed_setup(release,model)
+        if envelope is None:
+            raise HTTPException(503,'Direct setup requires signed instructions')
+        payload=json.loads(base64.b64decode(envelope['payload']).decode('utf-8'))
+        document=dict(data,origin=origin,release=release,model=model,signed_setup=envelope,executor='main-agent')
+        sid=str(uuid.uuid4());now=time.time()
+        with self.store.db(True) as db:
+            previous=db.execute('SELECT * FROM helper_bootstrap_sessions WHERE device_id=? AND idempotency_key=?',(device,data['idempotency_key'])).fetchone()
+            if previous:return compatible(previous)
+            active=db.execute("SELECT * FROM helper_bootstrap_sessions WHERE device_id=? AND status IN ('pending','running')",(device,)).fetchone()
+            if active:return compatible(active)
+            existing=db.execute('SELECT helper_seen FROM devices WHERE id=?',(device,)).fetchone()['helper_seen'] is not None
+            db.execute('INSERT OR IGNORE INTO helper_bootstrap_devices(device_id,gate) VALUES (?,?)',(device,int(not existing)))
+            db.execute('INSERT INTO helper_bootstrap_sessions(id,device_id,idempotency_key,provider,status,created,updated,document,instructions) VALUES (?,?,?,?,?,?,?,?,?)',(sid,device,data['idempotency_key'],data['provider'],'pending',now,now,json.dumps(document),payload['install_instructions']))
+            return self.view(self.row(db,device,sid))
+
     def attempt(self,device,sid,stopped):
         if not stopped:raise HTTPException(409,'Confirm the previous runner stopped')
         now=time.time();token=secrets.token_urlsafe(32)
         with self.store.db(True) as db:
             row=self.row(db,device,sid)
+            if json.loads(row['document']).get('executor')=='main-agent':
+                raise HTTPException(409,'Direct setup runs in the main agent and cannot mint a setup model credential')
             if row['status']=='ready':raise HTTPException(409,'Helper is already verified')
             if row['attempt']>=2:raise HTTPException(409,'Two setup attempts exhausted')
             if db.execute('SELECT paused FROM devices WHERE id=?',(device,)).fetchone()[0]:raise HTTPException(409,'Device paused')
@@ -270,6 +311,10 @@ def install_routes(app,store,device):
     def create(data:Create,request:Request,device_id=Depends(device)):
         origin=os.environ.get('PUBLIC_BASE_URL','https://34.14.204.251').rstrip('/')
         return service.create(device_id,data.model_dump(),origin)
+    @app.post('/api/device/helper-bootstrap/direct-sessions')
+    def direct_create(data:DirectCreate,device_id=Depends(device)):
+        origin=os.environ.get('PUBLIC_BASE_URL','https://34.14.204.251').rstrip('/')
+        return service.create_direct(device_id,data.model_dump(),origin)
     @app.get('/api/device/helper-bootstrap/sessions/{sid}')
     def status(sid:str,device_id=Depends(device)):
         with store.db() as db:return service.view(service.row(db,device_id,sid))
