@@ -46,3 +46,11 @@ The background worker still uses the existing server-backed Abliteration model, 
 - [Live verification history](docs/live-acceptance.md)
 
 The other repositories and installed services are unchanged. Earlier documents describe previous architectures; the thin-client design document describes this release.
+
+## Independent worker launch (2026.10.24)
+
+Fresh server setups launch the actual Codex/Claude executable as an on-demand user `launchd` job. The CLI receives the real `HOME` and starts in the user's home directory. API credentials and CLI configuration remain isolated; outputs remain in the task output folder. The helper monitors the independent job as well as the coordinator lock, and Stop waits for job removal.
+
+Existing installations are not silently replaced by reinstalling this skill. To test the new release alongside an existing installation, ask the agent to use a separate test state directory, for example `--state-dir "$HOME/Library/Application Support/DeepResearchIndependentTest"`. This creates a separate test PC entry; use that entry for test tasks. Do not delete or overwrite the original helper.
+
+Independent process ownership and home-directory behavior are tested. macOS privacy-prompt attribution is not yet verified; this release does not promise a particular popup name or grant protected-folder access automatically.
